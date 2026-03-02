@@ -1,0 +1,11 @@
+{
+  "name": "@seiridesk/types",
+  "private": true,
+  "version": "0.1.0",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"TODO: build types package\"",
+    "lint": "echo \"TODO: lint types\"",
+    "test": "echo \"No tests for types package yet\""
+  }
+}

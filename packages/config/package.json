@@ -1,0 +1,10 @@
+{
+  "name": "@seiridesk/config",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "echo \"No build step for config package\"",
+    "lint": "echo \"TODO: lint config\"",
+    "test": "echo \"No tests for config package\""
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@seiridesk/web",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "echo \"TODO: bootstrap Next.js app\"",
+    "build": "echo \"TODO: build Web\"",
+    "lint": "echo \"TODO: lint Web\"",
+    "test": "echo \"TODO: test Web\""
+  }
+}

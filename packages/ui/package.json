@@ -1,0 +1,10 @@
+{
+  "name": "@seiridesk/ui",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "echo \"TODO: build UI package\"",
+    "lint": "echo \"TODO: lint UI\"",
+    "test": "echo \"No tests for UI package yet\""
+  }
+}

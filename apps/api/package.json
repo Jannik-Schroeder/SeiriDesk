@@ -1,0 +1,14 @@
+{
+  "name": "@seiridesk/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "echo \"TODO: bootstrap NestJS app\"",
+    "build": "echo \"TODO: build API\"",
+    "lint": "echo \"TODO: lint API\"",
+    "test": "echo \"TODO: test API\"",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma"
+  }
+}

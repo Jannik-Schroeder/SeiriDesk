@@ -1,276 +1,278 @@
-# SUBSCRIPTIONS.md
+# SUBSCRIPTIONS Feature Handbook
 
-## 1. Purpose
-This document is the production onboarding guide for the MVP feature set implemented in this branch:
-- OCR status workflow for attachments
-- Basic search over document title and OCR text
-- Retention "review due" query logic (no auto-delete)
+## 1. What This Is
+`SUBSCRIPTIONS` is the onboarding and engineering runbook for the current SeiriDesk MVP feature surface:
 
-Target: a new engineer should be able to understand the design, run it locally, validate behavior, and extend safely within 30 minutes.
+- Core hierarchy CRUD: `Folder -> Section -> Document -> Attachment`
+- Section reorder semantics
+- OCR lifecycle for attachments
+- Search over title + OCR text
+- Retention review-due view
+- Minimal web navigation flow for these features
 
-## 2. Feature Summary
-### 2.1 Business Outcome
-The feature set enables a complete retrieval loop:
-1. Attach a scanned file to a document.
-2. Track OCR extraction state and failures.
-3. Search documents by title and extracted OCR text.
-4. Surface documents whose retention date is due for review.
+This document is designed so a new engineer can reach productive context in about 30 minutes, run the feature locally, and extend it safely.
 
-### 2.2 MVP Scope (Implemented)
-- OCR states: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`
-- Search query over:
-  - `Document.title`
-  - `Attachment.ocrText`
-- Retention due detection by `Document.retentionDate <= asOf`
-- No external search engine
-- No Redis requirement
-- No automatic deletion
+## 2. 30-Minute Onboarding Path
+1. Read sections `3` to `7` in this file.
+2. Open Prisma schema: `apps/api/prisma/schema.prisma`.
+3. Read services in this order:
+   - `apps/api/src/modules/sections/sections.service.ts`
+   - `apps/api/src/modules/documents/documents.service.ts`
+   - `apps/api/src/modules/attachments/attachments.service.ts`
+   - `apps/api/src/modules/ocr/ocr.service.ts`
+   - `apps/api/src/modules/search/search.service.ts`
+   - `apps/api/src/modules/retention/retention.service.ts`
+4. Read web MVP entry points:
+   - `apps/web/app/folders/page.tsx`
+   - `apps/web/app/folders/[folderId]/page.tsx`
+   - `apps/web/app/folders/[folderId]/sections/[sectionId]/page.tsx`
+   - `apps/web/app/folders/[folderId]/sections/[sectionId]/documents/[documentId]/page.tsx`
+   - `apps/web/app/search/page.tsx`
+5. Execute the validation checklist in section `12`.
 
-### 2.3 Explicit Non-Goals (Current)
-- No ranking engine beyond simple DB filtering
-- No policy-driven retention workflows
-- No automatic purge/delete flow
-- No async queue orchestration requirement
+## 3. Scope and Non-Goals
+### In scope (MVP)
+- Single-user oriented workflow.
+- Strong hierarchy consistency.
+- Reliable section ordering.
+- Basic OCR status handling.
+- Basic text search.
+- Retention due visibility.
 
-## 3. Code Map
-### 3.1 API Modules
-- `apps/api/src/modules/search`
-  - `search.controller.ts`
-  - `search.service.ts`
-  - `dto/search-query.dto.ts`
-  - `search.types.ts`
-- `apps/api/src/modules/ocr`
-  - `ocr.controller.ts`
-  - `ocr.service.ts`
-  - `dto/complete-ocr.dto.ts`
-  - `dto/fail-ocr.dto.ts`
-  - `ocr.types.ts`
-- `apps/api/src/modules/retention`
-  - `retention.controller.ts`
-  - `retention.service.ts`
-  - `dto/review-due-query.dto.ts`
-  - `retention.types.ts`
-- Shared DB adapter:
-  - `apps/api/src/common/prisma/prisma.module.ts`
-  - `apps/api/src/common/prisma/prisma.service.ts`
+### Explicitly out of scope
+- Multi-user invites and ACL authorization UX.
+- Policy-based auto-deletion.
+- Advanced search ranking/filter DSL.
+- Event outbox and integrations.
+- Mobile clients.
 
-### 3.2 Data Model Dependencies (Prisma)
-Source of truth: `apps/api/prisma/schema.prisma`
+## 4. Architecture Overview
+### Backend
+- Framework pattern: NestJS modules/controllers/services.
+- ORM: Prisma.
+- DB: PostgreSQL (via `DATABASE_URL`).
+- Domain modules:
+  - `folders`
+  - `sections`
+  - `documents`
+  - `attachments`
+  - `ocr`
+  - `search`
+  - `retention`
 
-Relevant fields:
-- `Attachment`
-  - `ocrStatus AttachmentOcrStatus`
-  - `ocrText String?`
-  - `ocrError String?`
+### Frontend
+- Next.js App Router style structure in `apps/web/app`.
+- Components in `apps/web/components`.
+- In-memory/mock data for MVP navigation UI.
+- Local UI persistence for section reorder in `localStorage`.
+
+## 5. Source of Truth and Data Invariants
+Schema: `apps/api/prisma/schema.prisma`.
+
+### Core entity invariants
+- `Folder`
+  - required: `householdId`, `name`
+  - optional: `number`
+  - ordered by `position`
+- `Section`
+  - required: `folderId`, `name`
+  - ordered by `position`
+  - uniqueness: `@@unique([folderId, position])`
 - `Document`
-  - `title String`
-  - `retentionDate DateTime?`
-  - `retentionStatus RetentionStatus`
-- Household scoping chain:
-  - `Document -> Section -> Folder -> householdId`
+  - required: `sectionId`, `title`
+  - optional: `retentionDate`
+  - derived lifecycle: `retentionStatus`
+- `Attachment`
+  - required: `documentId`, `originalFilename`, `mimeType`, `sizeBytes`, `storageKey`
+  - OCR fields: `ocrStatus`, `ocrText`, `ocrError`
+  - uniqueness: `@@unique([documentId, storageKey])`
 
-## 4. API Contracts
+### Important enums
+- `RetentionStatus`: `NONE`, `ACTIVE`, `REVIEW_DUE`, `REVIEWED_KEEP`, `REVIEWED_DELETE`
+- `AttachmentOcrStatus`: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`
 
-## 4.1 Search
-### Endpoint
-`GET /search?householdId=<id>&q=<query>&limit=<n>`
+## 6. API Contract (Current)
+All endpoints are JSON unless noted.
 
-### Query DTO
-- `householdId` (required, non-empty)
-- `q` (required, non-empty)
-- `limit` (optional, default `25`, max `100`)
+### Folder
+- `POST /folders`
+- `GET /folders?householdId=...`
+- `GET /folders/:id`
+- `PATCH /folders/:id`
+- `DELETE /folders/:id`
 
-### Behavior
-- Case-insensitive contains search on:
-  - `Document.title`
-  - `Attachment.ocrText`
-- Returns document-level results with matching attachment snippets.
-- Scoped to one household via relation filter on `Document.section.folder.householdId`.
+### Section
+- `POST /sections`
+- `GET /sections?folderId=...`
+- `GET /sections/:id`
+- `PATCH /sections/:id`
+- `POST /sections/:id/reorder`
+- `DELETE /sections/:id`
 
-### Example Response
-```json
-{
-  "query": "insurance",
-  "count": 1,
-  "results": [
-    {
-      "documentId": "doc_123",
-      "title": "Health Insurance 2025",
-      "sectionId": "sec_1",
-      "sectionName": "Policies",
-      "folderId": "fld_1",
-      "folderName": "Family",
-      "matchedInTitle": true,
-      "matchedInOcr": true,
-      "matchingAttachments": [
-        {
-          "attachmentId": "att_1",
-          "filename": "scan.pdf",
-          "ocrStatus": "COMPLETED",
-          "snippet": "...insurance contract number..."
-        }
-      ]
-    }
-  ]
-}
-```
+### Document
+- `POST /documents`
+- `GET /documents?sectionId=...`
+- `GET /documents/:id`
+- `PATCH /documents/:id`
+- `DELETE /documents/:id`
 
-## 4.2 OCR Workflow
-### Endpoints
+### Attachment
+- `POST /attachments`
+- `GET /attachments?documentId=...`
+- `GET /attachments/:id`
+- `PATCH /attachments/:id`
+- `DELETE /attachments/:id`
+
+### OCR
 - `GET /ocr/attachments/:attachmentId`
 - `POST /ocr/attachments/:attachmentId/start`
 - `POST /ocr/attachments/:attachmentId/complete`
 - `POST /ocr/attachments/:attachmentId/fail`
 
-### DTOs
-- `complete` body:
-```json
-{ "ocrText": "...extracted text..." }
-```
-- `fail` body:
-```json
-{ "error": "OCR engine timeout" }
-```
+### Search
+- `GET /search?householdId=...&q=...&limit=...`
 
-### Allowed Status Transitions
-- `PENDING -> PROCESSING`
-- `PROCESSING -> COMPLETED`
-- `PROCESSING -> FAILED`
-- `FAILED -> PROCESSING` (retry)
+### Retention
+- `GET /retention/review-due?householdId=...&asOf=...&limit=...&offset=...`
 
-### Transition Enforcement
-- Invalid transition: `400 Bad Request`
-- Missing attachment: `404 Not Found`
-- Concurrent status update detected: `409 Conflict`
+## 7. Behavioral Details You Must Preserve
+### Section reorder
+- Reorder is explicit and canonicalized.
+- Final sequence must always be contiguous `0..n-1` inside folder.
+- Constraint safety is achieved by temporary offset update, then final writes.
 
-### Failure Handling
-- On failure, `ocrStatus=FAILED`, `ocrError` is stored.
-- Retry uses `/start` from `FAILED`.
-- Retry start clears `ocrError` and old `ocrText` to prevent stale search hits.
+### OCR status machine
+- Allowed transitions:
+  - `PENDING -> PROCESSING`
+  - `PROCESSING -> COMPLETED`
+  - `PROCESSING -> FAILED`
+  - `FAILED -> PROCESSING`
+- Invalid transitions must fail with `400`.
+- Concurrency must not silently violate the state machine.
 
-## 4.3 Retention Review Due
-### Endpoint
-`GET /retention/review-due?householdId=<id>&asOf=<ISO8601>&limit=<n>&offset=<n>`
+### Retention
+- `retentionStatus` derives from `retentionDate` and comparison date (`asOf`).
+- MVP must not auto-delete documents.
+- Review-due query must reliably return due documents with folder/section context.
 
-### Query DTO
-- `householdId` (required, non-empty)
-- `asOf` (optional ISO-8601, default now)
-- `limit` (optional, default `50`, max `200`)
-- `offset` (optional, default `0`)
+### Search
+- Search currently uses case-insensitive `contains`.
+- Search matches title and OCR text.
+- Results are document-centric with matching attachment snippets.
 
-### Behavior
-Request performs two steps:
-1. Sync retention statuses for the household.
-2. Return due documents (`retentionDate <= asOf` and `retentionStatus=REVIEW_DUE`).
+## 8. Frontend MVP Flow
+Expected click-path:
+1. `/folders` (folder list)
+2. `/folders/[folderId]` (folder detail + section reorder controls)
+3. `/folders/[folderId]/sections/[sectionId]` (document list in section)
+4. `/folders/[folderId]/sections/[sectionId]/documents/[documentId]` (document + attachments)
+5. `/search` (title + OCR search)
 
-### Sync Rules
-- `retentionDate IS NULL` and status in `(ACTIVE, REVIEW_DUE)` -> `NONE`
-- `retentionDate > asOf` and status in `(NONE, REVIEW_DUE)` -> `ACTIVE`
-- `retentionDate <= asOf` and status in `(NONE, ACTIVE)` -> `REVIEW_DUE`
+Retention must be visible at document level with explicit due indicators.
 
-### Important Boundary
-No automatic deletion is performed. This endpoint is for visibility and review queues only.
+## 9. Local Setup
+This repository snapshot currently contains feature code and schema, but does not include package manager manifests (`package.json` / workspace config). Setup therefore has two tracks.
 
-## 5. Local Setup
+### Track A: If manifests exist in your branch
+1. Install dependencies:
+   - `pnpm install` or `npm install` (based on workspace standard)
+2. Set env:
+   - `export DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/seiridesk"`
+3. Generate Prisma client and migrate:
+   - `pnpm --filter api prisma generate`
+   - `pnpm --filter api prisma migrate dev`
+4. Start services:
+   - `pnpm --filter api dev`
+   - `pnpm --filter web dev`
 
-## 5.1 Prerequisites
-- PostgreSQL available locally
-- Node.js + package manager used by your team setup
-- Prisma CLI available through project scripts or local tooling
+### Track B: If manifests are missing (current snapshot)
+1. Coordinate with repo owners to pull the baseline workspace scaffolding commit.
+2. Do not guess dependency versions ad hoc in feature branches.
+3. After scaffold sync, execute Track A exactly.
 
-## 5.2 Environment
-Set `DATABASE_URL` to a PostgreSQL database.
+### Preflight checks
+- DB reachable via `DATABASE_URL`.
+- Prisma schema parses.
+- API boots with module registration.
+- Web routes render.
 
-Example:
-```bash
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/seiridesk"
-```
+## 10. Safe Extension Rules
+### Rule 1: Evolve schema and API together
+- Every schema field change requires:
+  - Prisma migration
+  - DTO validation updates
+  - Service mapping updates
+  - API contract note update
 
-## 5.3 Database Preparation
-From repository root:
-```bash
-cd apps/api
-# generate client
-pnpm prisma generate
-# apply migrations (or create initial schema in dev)
-pnpm prisma migrate dev
-```
+### Rule 2: Keep ordering operations transactional
+- Never split reorder writes across independent transactions.
+- Preserve conflict-safe behavior for `@@unique([folderId, position])`.
 
-## 5.4 Seed Minimum Test Data
-Ensure you have:
-- At least one household
-- Folder/Section/Document records in that household
-- At least one attachment linked to a document
+### Rule 3: Keep OCR transitions explicit
+- Do not allow direct arbitrary status updates in generic update endpoints.
+- Keep state machine guardrails centralized in OCR service.
 
-Recommended state for fast checks:
-- one attachment in `PENDING`
-- one attachment in `COMPLETED` with non-empty `ocrText`
-- one document with `retentionDate` in the past
+### Rule 4: Protect query endpoints from write amplification
+- Avoid expensive global updates on every read path.
+- If synchronization is needed, consider background jobs for scale.
 
-## 6. Validation Checklist
+### Rule 5: Preserve household boundaries
+- New list/search/report endpoints must include household scoping.
+- Prefer explicit household constraints in `where` clauses.
 
-## 6.1 OCR Flow
-1. `POST /ocr/attachments/:id/start` on `PENDING` attachment -> expect `PROCESSING`.
-2. `POST /ocr/attachments/:id/complete` with text -> expect `COMPLETED` + persisted `ocrText`.
-3. Invalid transition (e.g. complete twice) -> expect `400`.
-4. Retry path: fail then start -> expect `FAILED -> PROCESSING`.
+## 11. Security, Privacy, and Reliability Checklist
+- Validate all external input with DTOs.
+- Enforce strict `limit` and pagination caps.
+- Avoid returning internal error details to clients.
+- Keep OCR text handling bounded (size and truncation where needed).
+- Add authz checks before production multi-user rollout.
 
-## 6.2 Search
-1. Query by title term -> document returned.
-2. Query by OCR term -> document returned with attachment snippet.
-3. Query with wrong householdId -> no cross-household results.
+## 12. Manual Verification Checklist
+Run these scenarios after any meaningful change:
 
-## 6.3 Retention
-1. Set document retention date in past.
-2. Call `GET /retention/review-due`.
-3. Verify status sync and due list inclusion.
-4. Verify no deletion side effects.
+1. Core flow:
+   - create folder -> create section -> create document -> create attachment
+2. Reorder:
+   - move section up/down repeatedly
+   - refresh and verify order persistence
+3. OCR:
+   - `start` -> `complete` path
+   - invalid transition and ensure `400`
+   - concurrent transition behavior
+4. Search:
+   - title hit
+   - OCR hit
+   - no-hit path
+5. Retention:
+   - document with past date appears in review due
+   - future date does not appear as due
 
-## 7. Operational Notes
+## 13. Testing Strategy
+### Unit
+- Reorder algorithms and edge cases.
+- OCR transition validator.
+- Retention status derivation.
+- Search snippet creation.
 
-## 7.1 Performance Characteristics
-- Search currently uses case-insensitive `contains` filters.
-- For large OCR corpora this will degrade without indexing/FTS.
-- Retention endpoint performs write operations (`updateMany`) before read.
+### Integration
+- End-to-end CRUD hierarchy.
+- OCR + search integration.
+- Retention due listing with household scope.
 
-## 7.2 Security/Access Boundaries
-- Household scoping is enforced in search and retention queries.
-- Authentication/authorization integration is expected at higher layers (controller guards/middleware).
+### Concurrency
+- Simultaneous section reorders.
+- Simultaneous OCR updates on same attachment.
 
-## 7.3 Observability Recommendations
-Track at minimum:
-- OCR transition counts per status
-- OCR failures by error category
-- Search latency and result counts
-- Retention sync update counts per request
+## 14. Known Gaps and Recommended Next Steps
+1. Add package/workspace scaffolding to make this feature runnable end-to-end in CI.
+2. Add API authentication and request-scoped authorization.
+3. Add load-aware search strategy (indexes/FTS) once dataset grows.
+4. Move retention sync from read path to controlled background process if write load rises.
 
-## 8. Safe Extension Guide
-
-## 8.1 Extend OCR Safely
-- Keep transitions explicit in one map (`ALLOWED_TRANSITIONS`).
-- Add status transitions with migration + API contract update.
-- Preserve concurrency guard (`updateMany` with previous status condition).
-
-## 8.2 Extend Search Safely
-- Keep existing response keys backward-compatible.
-- Add optional filters (date/folder/section) as additive query params.
-- If introducing ranking/FTS, keep endpoint contract stable.
-
-## 8.3 Extend Retention Safely
-- Do not add auto-delete in same endpoint.
-- If policy workflows are added, separate evaluation from destructive actions.
-- Keep `REVIEWED_*` statuses protected from accidental overwrite.
-
-## 9. Known Limitations
-- No external search index
-- No async job queue orchestration in current MVP path
-- Retention sync is request-driven, not scheduled
-- No built-in auth guard integration in these modules yet
-
-## 10. Ownership and Next Steps
-Current implementation is intentionally boring and MVP-first.
-Recommended next iteration sequence:
-1. Add automated tests for transition matrix and retention sync rules.
-2. Add API module integration tests with seeded Prisma data.
-3. Introduce optional background scheduler for retention sync.
-4. Evaluate PostgreSQL FTS as a non-breaking search backend upgrade.
+## 15. Ownership and Change Control
+- Primary ownership: API core team.
+- Shared ownership: Web MVP team for route/component integration.
+- Required review before merge:
+  - Any schema migration
+  - Any API contract change
+  - Any reorder/OCR state machine logic change
