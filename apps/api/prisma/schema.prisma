@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum RetentionStatus {
+  NONE
+  ACTIVE
+  REVIEW_DUE
+  REVIEWED_KEEP
+  REVIEWED_DELETE
+}
+
+enum AttachmentOcrStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum PermissionResourceType {
+  HOUSEHOLD
+  LOCATION
+  SHELF
+  FOLDER
+  SECTION
+  DOCUMENT
+  ATTACHMENT
+}
+
+enum PermissionSubjectType {
+  USER
+  ROLE
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum JobType {
+  OCR_EXTRACT
+  SEARCH_REINDEX
+  RETENTION_EVALUATE
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+model User {
+  id               String       @id @default(cuid())
+  email            String       @unique
+  displayName      String?
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  memberships      Membership[]
+  createdDocuments Document[]   @relation("DocumentCreatedBy")
+  updatedDocuments Document[]   @relation("DocumentUpdatedBy")
+  auditLogs        AuditLog[]   @relation("AuditActor")
+}
+
+model Household {
+  id                String            @id @default(cuid())
+  name              String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  memberships       Membership[]
+  locations         Location[]
+  shelves           Shelf[]
+  folders           Folder[]
+  permissionEntries PermissionEntry[]
+  jobs              Job[]
+  auditLogs         AuditLog[]
+}
+
+model Membership {
+  id          String         @id @default(cuid())
+  householdId String
+  userId      String
+  role        MembershipRole @default(OWNER)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  household   Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, userId])
+  @@index([userId])
+}
+
+model Location {
+  id          String    @id @default(cuid())
+  householdId String
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  shelves     Shelf[]
+  folders     Folder[]
+
+  @@index([householdId])
+}
+
+model Shelf {
+  id          String    @id @default(cuid())
+  householdId String
+  locationId  String?
+  name        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  location    Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  folders     Folder[]
+
+  @@index([householdId])
+  @@index([locationId])
+}
+
+model Folder {
+  id          String    @id @default(cuid())
+  householdId String
+  locationId  String?
+  shelfId     String?
+  name        String
+  number      String?
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  location    Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  shelf       Shelf?    @relation(fields: [shelfId], references: [id], onDelete: SetNull)
+  sections    Section[]
+
+  @@index([householdId])
+  @@index([shelfId])
+  @@index([locationId])
+  @@index([householdId, name])
+  @@index([householdId, number])
+}
+
+model Section {
+  id        String    @id @default(cuid())
+  folderId  String
+  name      String
+  position  Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  folder    Folder    @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@index([folderId])
+  @@unique([folderId, position])
+}
+
+model Document {
+  id              String          @id @default(cuid())
+  sectionId       String
+  title           String
+  documentDate    DateTime?
+  notes           String?
+  retentionDate   DateTime?
+  retentionStatus RetentionStatus @default(NONE)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  section         Section         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  attachments     Attachment[]
+  createdByUser   User?           @relation("DocumentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser   User?           @relation("DocumentUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([sectionId])
+  @@index([retentionDate])
+  @@index([retentionStatus])
+}
+
+model Attachment {
+  id               String              @id @default(cuid())
+  documentId       String
+  originalFilename String
+  mimeType         String
+  sizeBytes        Int
+  storageKey       String
+  checksum         String?
+  ocrStatus        AttachmentOcrStatus @default(PENDING)
+  ocrText          String?
+  ocrError         String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  document         Document            @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([ocrStatus])
+  @@index([checksum])
+  @@unique([documentId, storageKey])
+}
+
+model PermissionEntry {
+  id           String                 @id @default(cuid())
+  householdId  String
+  resourceType PermissionResourceType
+  resourceId   String
+  subjectType  PermissionSubjectType
+  subjectId    String
+  effect       PermissionEffect       @default(ALLOW)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  household    Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, resourceType, resourceId])
+  @@index([householdId, subjectType, subjectId])
+  @@unique([householdId, resourceType, resourceId, subjectType, subjectId])
+}
+
+model AuditLog {
+  id           String                 @id @default(cuid())
+  householdId  String
+  actorUserId  String?
+  action       String
+  resourceType PermissionResourceType?
+  resourceId   String?
+  metadata     Json?
+  createdAt    DateTime               @default(now())
+  household    Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  actorUser    User?                  @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  householdId String
+  type        JobType
+  status      JobStatus @default(QUEUED)
+  payload     Json
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  availableAt DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@index([householdId, type])
+}
