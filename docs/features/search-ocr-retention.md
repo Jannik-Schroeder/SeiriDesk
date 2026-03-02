@@ -59,13 +59,17 @@ Nicht erlaubte Transitions werden mit `400 Bad Request` abgelehnt.
 - `GET /retention/review-due?householdId=<id>&asOf=<ISO8601>&limit=<n>&offset=<n>`
 
 ### Verhalten
-Vor der Abfrage wird ein Status-Sync ausgefuehrt:
-- Scope immer auf `householdId`
-- `retentionDate IS NULL` und Status in `(ACTIVE, REVIEW_DUE)` -> `NONE`
-- `retentionDate > asOf` und Status in `(NONE, REVIEW_DUE)` -> `ACTIVE`
-- `retentionDate <= asOf` und Status in `(NONE, ACTIVE)` -> `REVIEW_DUE`
+- Read-only Abfrage (kein DB-Write in GET-Request).
+- Scope immer auf `householdId`.
+- Liefert Dokumente mit `retentionDate <= asOf`.
+- Terminale Review-Status werden ausgeschlossen:
+  - `REVIEWED_KEEP`
+  - `REVIEWED_DELETE`
+- Response markiert Treffer als `REVIEW_DUE`.
 
-Danach werden nur `REVIEW_DUE`-Dokumente mit `retentionDate <= asOf` geliefert.
+### Query Parsing
+- `limit` und `offset` werden strikt als Integer geparst.
+- Werte wie `10abc` sind ungueltig und werden nicht mehr als `10` akzeptiert.
 
 ### Wichtige MVP-Grenze
 - Keine automatische Loeschung.

@@ -4,6 +4,23 @@ import { IsISO8601, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'cl
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
+function parseStrictInteger(value: unknown, fallback: number): number {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const normalized = String(value).trim();
+  if (normalized === '') {
+    return fallback;
+  }
+
+  if (!/^-?\d+$/.test(normalized)) {
+    return Number.NaN;
+  }
+
+  return Number.parseInt(normalized, 10);
+}
+
 export class ReviewDueQueryDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : ''))
   @IsString()
@@ -22,11 +39,7 @@ export class ReviewDueQueryDto {
   asOf?: string;
 
   @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') {
-      return DEFAULT_LIMIT;
-    }
-
-    return Number.parseInt(String(value), 10);
+    return parseStrictInteger(value, DEFAULT_LIMIT);
   })
   @IsInt()
   @Min(1)
@@ -34,11 +47,7 @@ export class ReviewDueQueryDto {
   limit = DEFAULT_LIMIT;
 
   @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') {
-      return 0;
-    }
-
-    return Number.parseInt(String(value), 10);
+    return parseStrictInteger(value, 0);
   })
   @IsInt()
   @Min(0)
