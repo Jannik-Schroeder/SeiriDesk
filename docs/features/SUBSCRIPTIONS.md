@@ -171,24 +171,21 @@ Expected click-path:
 Retention must be visible at document level with explicit due indicators.
 
 ## 9. Local Setup
-This repository snapshot currently contains feature code and schema, but does not include package manager manifests (`package.json` / workspace config). Setup therefore has two tracks.
+Workspace manifests are now present (`package.json`, `pnpm-workspace.yaml`, app package manifests).
+Current scripts are still scaffold placeholders and must be replaced with real runtime/build/test scripts.
 
-### Track A: If manifests exist in your branch
+### Current setup path
 1. Install dependencies:
-   - `pnpm install` or `npm install` (based on workspace standard)
+   - `pnpm install` or `npm install`
 2. Set env:
    - `export DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/seiridesk"`
-3. Generate Prisma client and migrate:
-   - `pnpm --filter api prisma generate`
-   - `pnpm --filter api prisma migrate dev`
-4. Start services:
-   - `pnpm --filter api dev`
-   - `pnpm --filter web dev`
-
-### Track B: If manifests are missing (current snapshot)
-1. Coordinate with repo owners to pull the baseline workspace scaffolding commit.
-2. Do not guess dependency versions ad hoc in feature branches.
-3. After scaffold sync, execute Track A exactly.
+3. Generate Prisma client and run migration:
+   - `npm run prisma:generate --workspace=@seiridesk/api`
+   - `npm run prisma:migrate --workspace=@seiridesk/api`
+4. Replace placeholder `dev/build/lint/test` scripts with real commands for API and Web apps.
+5. Start services once bootstraps exist:
+   - `npm run dev:api`
+   - `npm run dev:web`
 
 ### Preflight checks
 - DB reachable via `DATABASE_URL`.
@@ -264,7 +261,7 @@ Run these scenarios after any meaningful change:
 - Simultaneous OCR updates on same attachment.
 
 ## 14. Known Gaps and Recommended Next Steps
-1. Add package/workspace scaffolding to make this feature runnable end-to-end in CI.
+1. Replace placeholder package scripts with real NestJS/Next.js runtime and build tooling.
 2. Add API authentication and request-scoped authorization.
 3. Add load-aware search strategy (indexes/FTS) once dataset grows.
 4. Move retention sync from read path to controlled background process if write load rises.
